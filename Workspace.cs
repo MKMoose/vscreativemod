@@ -1,6 +1,7 @@
 using ProtoBuf;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
@@ -9,6 +10,7 @@ using Vintagestory.API.Config;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
+using Vintagestory.Datastructures;
 
 #nullable disable
 
@@ -20,12 +22,16 @@ namespace Vintagestory.ServerMods.WorldEdit
         Selection = 1
     }
 
-    [ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
+    [ProtoContract]
     public partial class WorldEditWorkspace
     {
+        [ProtoMember(1)]
         public bool ToolsEnabled;
 
+        [ProtoMember(2)]
         public string PlayerUID;
+
+        [ProtoMember(3)]
         public EnumWorldEditConstraint WorldEditConstraint;
 
         BlockPos prevStartMarker;
@@ -34,6 +40,7 @@ namespace Vintagestory.ServerMods.WorldEdit
         private BlockPos startMarker;
         private BlockPos endMarker;
 
+        [ProtoMember(4)]
         public BlockPos StartMarker {
             get => startMarker;
             set
@@ -42,6 +49,8 @@ namespace Vintagestory.ServerMods.WorldEdit
                 startMarker = value;
             }
         }
+
+        [ProtoMember(5)]
         public BlockPos EndMarker
         {
             get => endMarker;
@@ -52,16 +61,17 @@ namespace Vintagestory.ServerMods.WorldEdit
             }
         }
 
+        [ProtoMember(6)]
         public Vec3d StartMarkerExact;
+
+        [ProtoMember(7)]
         public Vec3d EndMarkerExact;
 
-        private Vec3d _prevStartMarkerExact;
-        private Vec3d _prevEndMarkerExact;
+        private Vec3d prevStartMarkerExact;
+        private Vec3d prevEndMarkerExact;
 
-        [ProtoIgnore]
         public BlockSchematic PreviewBlockData { get; set; }
 
-        [ProtoIgnore]
         public BlockPos PreviewPos { get; set; }
 
         public bool Rsp
@@ -88,26 +98,46 @@ namespace Vintagestory.ServerMods.WorldEdit
             set => IntValues["std.dimensionId"] = value;
         }
 
+        [ProtoMember(8)]
         public int ImportAngle;
+
+        [ProtoMember(9)]
         public bool ImportFlipped;
         /// <summary>
         /// If false, removing/placing blocks will not update their light values
         /// </summary>
+
+        [ProtoMember(10), DefaultValue(true)]
         public bool DoRelight = true;
 
 
         internal IBlockAccessorRevertable revertableBlockAccess;
         internal IWorldAccessor world;
 
+        [ProtoMember(11), DefaultValue(true)]
         public bool serverOverloadProtection = true;
+
+        [ProtoMember(12)]
         public EnumToolOffsetMode ToolOffsetMode;
 
+        [ProtoMember(13)]
         public Dictionary<string, float> FloatValues = new Dictionary<string, float>();
+
+        [ProtoMember(14)]
         public Dictionary<string, int> IntValues = new Dictionary<string, int>();
+
+        [ProtoMember(15)]
         public Dictionary<string, string> StringValues = new Dictionary<string, string>();
+
+        [ProtoMember(16)]
         public Dictionary<string, byte[]> ByteDataValues = new Dictionary<string, byte[]>();
 
+        [ProtoMember(17)]
         public string ToolName = null;
+
+        [ProtoMember(18), DefaultValue(true)]
+        public bool ShowWarnings = true;
+
         internal ToolBase ToolInstance;
         internal BlockSchematic clipboardBlockData;
         internal IMiniDimension previewBlocks;
@@ -181,14 +211,14 @@ namespace Vintagestory.ServerMods.WorldEdit
             prevStartMarker = StartMarker?.Copy();
             prevEndMarker = EndMarker?.Copy();
 
-            obj.OldStartMarkerExact = _prevStartMarkerExact?.Clone();
-            obj.OldEndMarkerExact = _prevEndMarkerExact?.Clone();
+            obj.OldStartMarkerExact = prevStartMarkerExact?.Clone();
+            obj.OldEndMarkerExact = prevEndMarkerExact?.Clone();
 
             obj.NewStartMarkerExact = StartMarkerExact?.Clone();
             obj.NewEndMarkerExact = EndMarkerExact?.Clone();
 
-            _prevStartMarkerExact = StartMarkerExact?.Clone();
-            _prevEndMarkerExact = EndMarkerExact?.Clone();
+            prevStartMarkerExact = StartMarkerExact?.Clone();
+            prevEndMarkerExact = EndMarkerExact?.Clone();
         }
 
         public void SetTool(string toolname, ICoreAPI api)
@@ -278,9 +308,14 @@ namespace Vintagestory.ServerMods.WorldEdit
             writer.Write(DoRelight);
 
             writer.Write(serverOverloadProtection);
+            writer.Write(ShowWarnings);
         }
 
+        [Obsolete("Prefer the BinarySpanReader overload.")]
         public void FromBytes(BinaryReader reader)
+            => reader.UnsafeActAsBinarySpanReader(FromBytes);
+
+        public void FromBytes(ref BinarySpanReader reader)
         {
             try
             {
@@ -305,7 +340,6 @@ namespace Vintagestory.ServerMods.WorldEdit
                 else
                 {
                     EndMarker = null;
-
                 }
 
                 FloatValues = new Dictionary<string, float>();
@@ -332,7 +366,6 @@ namespace Vintagestory.ServerMods.WorldEdit
                     {
                         StringValues[reader.ReadString()] = reader.ReadString();
                     }
-
                 }
 
                 int byteDataValCount = reader.ReadInt32();
@@ -342,7 +375,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                     {
                         string key = reader.ReadString();
                         int qbytes = reader.ReadInt32();
-                        ByteDataValues[key] = reader.ReadBytes(qbytes);
+                        ByteDataValues[key] = reader.ReadBytes(qbytes).ToArray();
                     }
                 }
 
@@ -358,6 +391,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                 revertableBlockAccess.Relight = DoRelight;
 
                 serverOverloadProtection = reader.ReadBoolean();
+                ShowWarnings = reader.ReadBoolean();
             }
             catch (Exception) { }
         }
@@ -558,7 +592,7 @@ namespace Vintagestory.ServerMods.WorldEdit
             return facing;
         }
 
-        internal int FillArea(ItemStack blockStack, BlockPos start, BlockPos end, bool notLiquids = false)
+        internal int FillArea(ItemStack blockStack, BlockPos start, BlockPos end, EnumReplaceMode mode = EnumReplaceMode.ReplaceAll, bool notLiquids = false)
         {
             var player = (IServerPlayer)world.PlayerByUid(PlayerUID);
             int updated = 0;
@@ -592,7 +626,19 @@ namespace Vintagestory.ServerMods.WorldEdit
                     curPos.Z = startPos.Z;
                     while (curPos.Z < finalPos.Z)
                     {
+                        if (mode == EnumReplaceMode.ReplaceOnlyAir && revertableBlockAccess.GetBlock(curPos).Id != 0)
+                        {
+                            curPos.Z++;
+                            continue;
+                        }
+                        if (mode == EnumReplaceMode.ReplaceAllNoAir && revertableBlockAccess.GetBlock(curPos).Id == 0)
+                        {
+                            curPos.Z++;
+                            continue;
+                        }
+
                         if (!notLiquids) revertableBlockAccess.SetBlock(0, curPos, BlockLayersAccess.Fluid);
+
                         revertableBlockAccess.SetBlock(blockId, curPos, blockStack);
                         curPos.Z++;
                         updated++;
@@ -800,15 +846,21 @@ namespace Vintagestory.ServerMods.WorldEdit
             {
                enumReplaceMode = importTool.ReplaceMode;
             }
-
-            rotated.Place(blockAccessor, sapi.World, originPos, enumReplaceMode, WorldEdit.ReplaceMetaBlocks);
-            rotated.PlaceDecors(blockAccessor, originPos);
+            SchematicPlacementData data = new(blockAccessor, sapi.World)
+            {
+                StartPos = originPos,
+                ReplaceMode = enumReplaceMode,
+                ReplaceMeta = WorldEdit.ReplaceMetaBlocks,
+                BlockCodes = blockData.BlockCodes,
+                ItemCodes = blockData.ItemCodes,
+            };
+            rotated.Place(data);
 
             if (blockAccessor is IBlockAccessorRevertable revertable)
             {
                 revertable.Commit();
 
-                blockData.PlaceEntitiesAndBlockEntities(revertable, sapi.World, originPos, blockData.BlockCodes, blockData.ItemCodes,false, null, 0 , null, WorldEdit.ReplaceMetaBlocks);
+                blockData.PlaceEntitiesAndBlockEntities(data);
                 revertable.CommitBlockEntityData();
             }
         }

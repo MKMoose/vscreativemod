@@ -671,6 +671,9 @@ namespace Vintagestory.ServerMods.WorldEdit
                 case "serveroverloadprotection":
                     capi.SendChatMessage("/we sovp " + newValue);
                     break;
+                case "showwarnings":
+                    capi.SendChatMessage("/we showwarnings " + newValue);
+                    break;
 
                 case "ambientparticles":
                     capi.World.AmbientParticles = newValue == "1" || newValue == "true";
@@ -772,6 +775,9 @@ namespace Vintagestory.ServerMods.WorldEdit
                 case "serveroverloadprotection":
                     if (ownWorkspace == null) return "1";
                     return ownWorkspace.serverOverloadProtection ? "1" : "0";
+                case "showwarnings":
+                    if (ownWorkspace == null) return "1";
+                    return ownWorkspace.ShowWarnings ? "1" : "0";
                 case "ambientparticles":
                     return (capi.World.AmbientParticles ? "1" : "0");
                 case "flymode":

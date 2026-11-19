@@ -42,6 +42,7 @@ namespace Vintagestory.ServerMods
             api.RegisterItemClass("ItemMagicWand", typeof(ItemMagicWand));
             api.RegisterItemClass("ItemPocketSun", typeof(ItemPocketSun));
             api.RegisterEntity("EntityTestShip", typeof(EntityTestShip));
+            api.RegisterEntity("EntityKinematicPlatform", typeof(EntityKinematicPlatform));
         }
 
         public override void StartServerSide(ICoreServerAPI api)

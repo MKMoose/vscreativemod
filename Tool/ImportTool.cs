@@ -7,6 +7,7 @@ using Vintagestory.API.Common;
 using Vintagestory.API.Config;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
+using Vintagestory.Datastructures;
 using VSCreativeMod;
 
 #nullable disable
@@ -154,8 +155,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                 case "ims":
                     var exportFolderPath = worldEdit.sapi.GetOrCreateDataPath("WorldEdit");
 
-                    var filename = args[1].StartsWith(Path.DirectorySeparatorChar) ? args[1].Substring(1) : args[1];
-                    var filepath = Path.Combine(exportFolderPath, filename);
+                    var filepath = Path.Join(exportFolderPath, args[1]);
                     string error = null;
                     workspace.PreviewBlockData = BlockSchematic.LoadFromFile(filepath, ref error);
                     if (workspace.PreviewPos == null)
@@ -314,16 +314,29 @@ namespace Vintagestory.ServerMods.WorldEdit
             if (workspace.PreviewBlockData == null) return true;
 
             workspace.PreviewBlockData.Init(ba);
-            workspace.PreviewBlockData.Place(ba, worldEdit.sapi.World, workspace.PreviewPos, ReplaceMode, WorldEdit.ReplaceMetaBlocks);
 
-            workspace.PreviewBlockData.PlaceDecors(ba, workspace.PreviewPos);
+            SchematicPlacementData data = new(ba, worldEdit.sapi.World)
+            {
+                StartPos = workspace.PreviewPos,
+                ReplaceMode = ReplaceMode,
+                ReplaceMeta = WorldEdit.ReplaceMetaBlocks,
+                ItemCodes = workspace.PreviewBlockData.ItemCodes,
+                BlockCodes = workspace.PreviewBlockData.BlockCodes,
+            };
+
+            workspace.PreviewBlockData.Place(data);
             ba.Commit();
-            workspace.PreviewBlockData.PlaceEntitiesAndBlockEntities(ba, worldEdit.sapi.World, workspace.PreviewPos,
-                workspace.PreviewBlockData.BlockCodes, workspace.PreviewBlockData.ItemCodes, false, null, 0, null, WorldEdit.ReplaceMetaBlocks);
+            workspace.PreviewBlockData.PlaceEntitiesAndBlockEntities(data);
             ba.CommitBlockEntityData();
 
             if (RandomRotate) SetRandomAngle(worldEdit.sapi.World);
             workspace.ResendBlockHighlights();
+
+            if (workspace.ShowWarnings && workspace.PreviewBlockData.ModData.Count > 0)
+            {
+                var player = worldEdit.sapi.World.PlayerByUid(workspace.PlayerUID) as IServerPlayer;
+                WorldEdit.Good(player, "The imported Schematic has custom mod data like Block Reinforcements, which is not supported by WorldEdit Undo/Redo.");
+            }
             return true;
         }
 

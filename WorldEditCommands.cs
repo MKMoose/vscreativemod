@@ -90,6 +90,12 @@ namespace Vintagestory.ServerMods.WorldEdit
                     .WithArgs(parsers.OptionalBool("on/off"))
                     .HandleWith(handleSovp)
                 .EndSub()
+                .BeginSub("showwarnings")
+                    .RequiresPrivilege(Privilege.controlserver)
+                    .WithDesc("Toggle WorldEdit warnings in chat")
+                    .WithArgs(parsers.OptionalBool("on/off"))
+                    .HandleWith(handleShowWarnings)
+                .EndSub()
                 .BeginSub("undo")
                     .WithDesc("Undo last world edit action")
                     .WithAlias("u").WithAlias("z")
@@ -113,7 +119,9 @@ namespace Vintagestory.ServerMods.WorldEdit
                 .BeginSub("rebuild-rainmap")
                     .RequiresPrivilege(Privilege.controlserver)
                     .WithAlias("rebuildrainmap").WithAlias("rrm")
-                    .WithDesc("Rebuild rainheightmap on all loaded chunks")
+                    .WithDesc("Rebuild rainheightmap in the specified chunk range")
+                    .RequiresPlayer()
+                    .WithArgs(parsers.Int("chunk_range"))
                     .HandleWith(handleRebuildRainmap)
                 .EndSub()
                 .BeginSub("tool")
@@ -265,6 +273,7 @@ namespace Vintagestory.ServerMods.WorldEdit
                 .BeginSub("fill")
                     .WithAlias("f")
                     .WithDesc("Fill current selection with the block you are holding and remove all entities inside the area")
+                    .WithArgs(parsers.OptionalWordRange("mode", "all", "air", "nonair"))
                     .HandleWith(handleFillSelection)
                 .EndSub()
                 .BeginSub("delete")
@@ -663,10 +672,14 @@ namespace Vintagestory.ServerMods.WorldEdit
                 return TextCommandResult.Error("Please put the desired block in your active hotbar slot ");
             }
 
-            int filled = workspace.FillArea(stack, workspace.StartMarker, workspace.EndMarker);
+            EnumReplaceMode mode = EnumReplaceMode.ReplaceAll;
+            if ((string)args[0] == "air") mode = EnumReplaceMode.ReplaceOnlyAir;
+            if ((string)args[0] == "nonair") mode = EnumReplaceMode.ReplaceAllNoAir;
+
+            int filled = workspace.FillArea(stack, workspace.StartMarker, workspace.EndMarker, mode);
 
             var entitiesInArea = RemoveEntitiesInArea(workspace.StartMarker, workspace.EndMarker);
-            return TextCommandResult.Success(filled + " marked blocks placed and " + entitiesInArea + "removed");
+            return TextCommandResult.Success(filled + " marked blocks placed and " + entitiesInArea + " removed");
         }
 
         private TextCommandResult handleSelectionInfo(TextCommandCallingArgs args)
@@ -1143,13 +1156,18 @@ namespace Vintagestory.ServerMods.WorldEdit
 
         private TextCommandResult handleRebuildRainmap(TextCommandCallingArgs args)
         {
+            var range = (int)args[0];
             if (args.Caller.Player is IServerPlayer splr)
             {
-                splr.SendMessage(args.Caller.FromChatGroupId, "Ok, rebuilding rain map on all loaded chunks, this may take some time and lag the server", EnumChatType.Notification);
+                splr.SendMessage(args.Caller.FromChatGroupId, $"Ok, rebuilding rain map in {range} chunks range, this may take some time and lag the server", EnumChatType.Notification);
+                if (range >= 0)
+                {
+                    var rebuiltRange = RebuildRainMap(range, splr);
+                    return TextCommandResult.Success(string.Format("Done, rebuilding {0} map chunks", rebuiltRange));
+                }
             }
 
-            int rebuilt = RebuildRainMap();
-            return TextCommandResult.Success(string.Format("Done, rebuilding {0} map chunks", rebuilt));
+            return TextCommandResult.Success("Needs to be run as a player");
         }
 
         private TextCommandResult handleToolModeOff(TextCommandCallingArgs args)
@@ -1200,6 +1218,17 @@ namespace Vintagestory.ServerMods.WorldEdit
 
             workspace.serverOverloadProtection = (bool)args[0];
             return TextCommandResult.Success("Server overload protection now " + (workspace.serverOverloadProtection ? "on" : "off"));
+        }
+
+        private TextCommandResult handleShowWarnings(TextCommandCallingArgs args)
+        {
+            if (args.Parsers[0].IsMissing)
+            {
+                return TextCommandResult.Success("Show WorldEdit warning is currently " + (workspace.ShowWarnings ? "on" : "off"));
+            }
+
+            workspace.ShowWarnings = (bool)args[0];
+            return TextCommandResult.Success("Show WorldEdit warnings is now " + (workspace.ShowWarnings ? "on" : "off"));
         }
 
         private TextCommandResult handleBlock(TextCommandCallingArgs args)
@@ -1256,7 +1285,7 @@ namespace Vintagestory.ServerMods.WorldEdit
             }
 
             workspace.clipboardBlockData = workspace.CopyArea(workspace.StartMarker, workspace.EndMarker, true);
-            workspace.FillArea(null, workspace.StartMarker, workspace.EndMarker, true);
+            workspace.FillArea(null, workspace.StartMarker, workspace.EndMarker, EnumReplaceMode.ReplaceAll, true);
             BlockPos startPos = workspace.StartMarker.Copy();
             startPos.Add(workspace.clipboardBlockData.PackedOffset);
             IMiniDimension miniDimension = workspace.CreateDimensionFromSchematic(workspace.clipboardBlockData, startPos, EnumOrigin.StartPos);

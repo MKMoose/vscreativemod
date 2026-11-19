@@ -1,4 +1,5 @@
-﻿using Vintagestory.API.Client;
+﻿using System;
+using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.ServerMods.WorldEdit;
 
@@ -51,52 +52,51 @@ public class HudWorldEditInputCapture : HudElement
     public override void OnMouseWheel(MouseWheelEventArgs args)
     {
         base.OnMouseWheel(args);
+        if (args.IsHandled) return;
+        var toolInstance = _handler?.ownWorkspace?.ToolInstance;
+        if (toolInstance?.ScrollEnabled != true || !capi.Input.IsHotKeyPressed("ctrl")) return;
 
-            if (!args.IsHandled &&
-            _handler?.ownWorkspace?.ToolInstance?.ScrollEnabled == true &&
-            capi.Input.IsHotKeyPressed("ctrl"))
+        if (args.DeltaYInt == 0) return;
+
+        var workspace = _we.clientHandler.ownWorkspace;
+
+        var blockFacing = workspace.GetFacing(capi.World.Player.Entity.Pos);
+        var facing = blockFacing.Code[0];
+
+        workspace.IntValues.TryGetValue("std.stepSize", out var amount);
+
+        amount *= Math.Sign(args.DeltaYInt);
+        switch (toolInstance.ScrollMode)
         {
-            var workspace = _we.clientHandler.ownWorkspace;
-
-            var blockFacing = workspace.GetFacing(capi.World.Player.Entity.Pos);
-            var facing = blockFacing.Code[0];
-
-            workspace.IntValues.TryGetValue("std.stepSize", out var amount);
-
-            var tiscm = _handler?.ownWorkspace?.ToolInstance.ScrollMode;
-            amount = (args.delta > 0 ? amount : -1 * amount);
-            switch (tiscm)
+            case EnumWeToolMode.Move:
             {
-                case EnumWeToolMode.Move:
+                switch (toolInstance)
                 {
-                    switch (_handler?.ownWorkspace?.ToolInstance)
-                    {
-                        case SelectTool:
-                            capi.SendChatMessage($"/we shift {facing} {amount} true");
-                            break;
-                        case MoveTool:
-                        case ImportTool:
-                            capi.SendChatMessage($"/we move {facing} {amount} true");
-                            break;
-                    }
-
-                    args.SetHandled();
-                    break;
+                    case SelectTool:
+                        capi.SendChatMessage($"/we shift {facing} {amount} true");
+                        break;
+                    case MoveTool:
+                    case ImportTool:
+                        capi.SendChatMessage($"/we move {facing} {amount} true");
+                        break;
                 }
 
-                case EnumWeToolMode.MoveNear when _handler?.ownWorkspace?.ToolInstance is SelectTool:
-                    capi.SendChatMessage($"/we g {blockFacing.Opposite.Code[0]} {-1*amount} true");
-                    args.SetHandled();
-                    break;
-                case EnumWeToolMode.MoveFar when _handler?.ownWorkspace?.ToolInstance is SelectTool:
-                    capi.SendChatMessage($"/we g {facing} {amount} true");
-                    args.SetHandled();
-                    break;
-                case EnumWeToolMode.Rotate:
-                    capi.SendChatMessage($"/we imr {(args.delta > 0 ? 90 : 270)}");
-                    args.SetHandled();
-                    break;
+                args.SetHandled();
+                break;
             }
+
+            case EnumWeToolMode.MoveNear when toolInstance is SelectTool:
+                capi.SendChatMessage($"/we g {blockFacing.Opposite.Code[0]} {-amount} true");
+                args.SetHandled();
+                break;
+            case EnumWeToolMode.MoveFar when toolInstance is SelectTool:
+                capi.SendChatMessage($"/we g {facing} {amount} true");
+                args.SetHandled();
+                break;
+            case EnumWeToolMode.Rotate:
+                capi.SendChatMessage($"/we imr {(args.DeltaY > 0 ? 90 : 270)}");
+                args.SetHandled();
+                break;
         }
     }
 }

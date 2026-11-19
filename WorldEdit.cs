@@ -357,26 +357,24 @@ namespace Vintagestory.ServerMods.WorldEdit
 
             try
             {
-                using (MemoryStream ms = new MemoryStream(data))
+                var reader = new BinarySpanReader(data);
+
+                int count = reader.ReadInt32();
+
+                while (count-- > 0)
                 {
-                    BinaryReader reader = new BinaryReader(ms);
-                    int count = reader.ReadInt32();
+                    IBlockAccessorRevertable revertableBlockAccess = sapi.World.GetBlockAccessorRevertable(true, true);
+                    WorldEditWorkspace workspace = new WorldEditWorkspace(sapi.World, revertableBlockAccess);
+                    revertableBlockAccess.BeforeCommit += (ba) => RevertableBlockAccess_BeforeCommit(ba, workspace);
 
-                    while (count-- > 0)
+                    workspace.FromBytes(ref reader);
+                    workspace.Init(sapi);
+                    if (workspace.PlayerUID == null)
                     {
-                        IBlockAccessorRevertable revertableBlockAccess = sapi.World.GetBlockAccessorRevertable(true, true);
-                        WorldEditWorkspace workspace = new WorldEditWorkspace(sapi.World, revertableBlockAccess);
-                        revertableBlockAccess.BeforeCommit += (ba) => RevertableBlockAccess_BeforeCommit(ba, workspace);
-
-                        workspace.FromBytes(reader);
-                        workspace.Init(sapi);
-                        if (workspace.PlayerUID == null)
-                        {
-                            continue;
-                        }
-
-                        workspaces[workspace.PlayerUID] = workspace;
+                        continue;
                     }
+
+                    workspaces[workspace.PlayerUID] = workspace;
                 }
             }
             catch (Exception)
@@ -464,26 +462,41 @@ namespace Vintagestory.ServerMods.WorldEdit
             return TextCommandResult.Success("Json code written to server-main.log");
         }
 
-        private int RebuildRainMap()
+        private int RebuildRainMap(int range, IServerPlayer aroundPlayer)
         {
+            var coords = new List<Vec2i>();
+
+            int chunkMidX = sapi.WorldManager.MapSizeX / GlobalConstants.ChunkSize / 2;
+            int chunkMidZ = sapi.WorldManager.MapSizeZ / GlobalConstants.ChunkSize / 2;
+            if (aroundPlayer != null)
+            {
+                chunkMidX = (int)aroundPlayer.Entity.Pos.X / GlobalConstants.ChunkSize;
+                chunkMidZ = (int)aroundPlayer.Entity.Pos.Z / GlobalConstants.ChunkSize;
+            }
+            for (int x = -range; x <= range; x++)
+            {
+                for (int z = -range; z <= range; z++)
+                {
+                    coords.Add(new Vec2i(chunkMidX + x, chunkMidZ + z));
+                }
+            }
+
             int mapChunksRebuilt = 0;
 
-            Dictionary<long, IMapChunk> mapchunks = sapi.WorldManager.AllLoadedMapchunks;
             int ymax = sapi.WorldManager.MapSizeY / sapi.WorldManager.ChunkSize;
 
             IServerChunk[] column = new IServerChunk[ymax];
             int chunksize = sapi.WorldManager.ChunkSize;
 
-            foreach (var val in mapchunks)
+            foreach (var coord in coords)
             {
-                int cx = (int)(val.Key % (sapi.WorldManager.MapSizeX / chunksize));
-                int cz = (int)(val.Key / (sapi.WorldManager.MapSizeX / chunksize));
+                var mapChunk = sapi.WorldManager.GetMapChunk(coord.X, coord.Y);
+                if(mapChunk == null) continue;
                 mapChunksRebuilt++;
-
 
                 for (int cy = 0; cy < ymax; cy++)
                 {
-                    column[cy] = sapi.WorldManager.GetChunk(cx, cy, cz);
+                    column[cy] = sapi.WorldManager.GetChunk(coord.X, cy, coord.Y);
                     column[cy]?.Unpack();
                 }
 
@@ -501,15 +514,15 @@ namespace Vintagestory.ServerMods.WorldEdit
 
                             if (!block.RainPermeable || dy == 0)
                             {
-                                val.Value.RainHeightMap[dz * chunksize + dx] = (ushort)dy;
+                                mapChunk.RainHeightMap[dz * chunksize + dx] = (ushort)dy;
                                 break;
                             }
                         }
                     }
                 }
 
-                sapi.WorldManager.ResendMapChunk(cx, cz, true);
-                val.Value.MarkDirty();
+                sapi.WorldManager.ResendMapChunk(coord.X, coord.Y, true);
+                mapChunk.MarkDirty();
             }
 
             return mapChunksRebuilt;

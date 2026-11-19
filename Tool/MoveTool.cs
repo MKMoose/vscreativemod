@@ -5,6 +5,7 @@ using Vintagestory.API.Common;
 using Vintagestory.API.Config;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
+using Vintagestory.Datastructures;
 using VSCreativeMod;
 
 #nullable disable
@@ -164,12 +165,18 @@ namespace Vintagestory.ServerMods.WorldEdit
             workspace.FillArea(null, workspace.StartMarker, workspace.EndMarker);
 
             workspace.PreviewBlockData.Init(ba);
-            workspace.PreviewBlockData.Place(ba, worldEdit.sapi.World, startPos, EnumReplaceMode.ReplaceAll, WorldEdit.ReplaceMetaBlocks);
+            SchematicPlacementData data = new(ba, worldEdit.sapi.World)
+            {
+                StartPos = startPos,
+                ReplaceMode = EnumReplaceMode.ReplaceAll,
+                ReplaceMeta = WorldEdit.ReplaceMetaBlocks,
+                ItemCodes = workspace.PreviewBlockData.ItemCodes,
+                BlockCodes = workspace.PreviewBlockData.BlockCodes,
+            };
 
-            workspace.PreviewBlockData.PlaceDecors(ba, startPos);
+            workspace.PreviewBlockData.Place(data);
             ba.Commit();
-            workspace.PreviewBlockData.PlaceEntitiesAndBlockEntities(ba, worldEdit.sapi.World, startPos,
-                workspace.PreviewBlockData.BlockCodes, workspace.PreviewBlockData.ItemCodes, false, null, 0, null, WorldEdit.ReplaceMetaBlocks);
+            workspace.PreviewBlockData.PlaceEntitiesAndBlockEntities(data);
             ba.CommitBlockEntityData();
 
             workspace.PreviewPos = startPos.Copy();
